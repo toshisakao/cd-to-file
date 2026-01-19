@@ -8,7 +8,6 @@
   "Helper to get the last folder name as a string."
   (car (last (pathname-directory path))))
 
-
 (defun search-album-metadata (artist album)
   (let* ((query (format nil "artist:~a AND release:~a" artist album))
          (url (format nil "https://musicbrainz.org/ws/2/release/?query=~a&fmt=json"
@@ -18,14 +17,31 @@
     
     (let ((data (jonathan:parse response)))
       (let ((first-match (first (getf data :|releases|))))
-        (if (equal (getf first-match :|title|) album)
+        (let* ((album-title (getf first-match :|title|))
+               (album-date (getf first-match :|date|))
+               (album-id (getf first-match :|id|))
+               (artist-info (getf (first (getf first-match :|artist-credit|)) :|artist|))
+               (artist-name (getf artist-info :|name|))
+               (artist-sort-name (getf artist-info :|sort-name|)))
+          
+          (format  t "Artist name: ~a ~%" artist-name)
+          (format  t "Artist sort name: ~a ~%" artist-sort-name)
+
+          (if (or (equal album-title album) (equal artist-name artist))
             (progn
               (format t "Exact match found for \"~a\" - \"~a\"~%" artist album)
-              (list :title (getf first-match :|title|)
-                  :date  (getf first-match :|date|)
-                  :id    (getf first-match :|id|)))
+              (format t "first-match: ~a~%~%" first-match)
+              (list :title  album-title
+                    :artist artist-name
+                    :date   album-date
+                    :id     album-id))
             (format t "Warning: Exact match not found for \"~a\" - \"~a\" Found: \"~a\"~%"
-                      artist album (getf first-match :|title|))))))) ; TODO: make possible to choose from multiple results
+                      artist album (getf first-match :|title|)))))))) ; TODO: make possible to choose from multiple results)
+        
+
+        
+
+        
 
 (defun download-album-cover (mbid destination-dir)
   (let ((url (format nil "https://coverartarchive.org/release/~a/front" mbid))
