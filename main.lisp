@@ -3,18 +3,16 @@
 ; (ql:quickload '(:quri :dexador :jonathan))
 
 (defparameter *user-agent* "LispMusicManager/0.0.1 ( muryuryumuryuryu@gmail.com )")
+(defparameter *audio-file-exts* '("mp3" "flac" "m4a" "ogg"))
 
 (defun get-dir-name (path)
-  "Helper to get the last folder name as a string."
   (car (last (pathname-directory path))))
 
 (defun get-cache-path (artist album)
-  "Creates a safe filename for the cache."
-  ;; merge-pathnames puts it relative to your project root
   (ensure-directories-exist ".cache/")
   (make-pathname :name (format nil "~a-~a" artist album)
-                 :type "json"
-                 :defaults ".cache/"))
+                :type "json"
+                :defaults ".cache/"))
 
 (defun write-string-to-file (path string)
   (with-open-file (s path :direction :output :if-exists :supersede)
@@ -26,23 +24,25 @@
       (read-sequence data s)
       data)))
 
-(defun get-album-metadata (artist album)
-  (let* ((cache-file (get-cache-path artist album)))
+(defun get-album (artist album)
+  (let ((cache-file (get-cache-path artist album)))
     (if (probe-file cache-file)
         (let ((data (read-file-to-string cache-file)))
           (jonathan:parse data))
-        (query-album album artist))))
+        (get-album-api album artist))))
 
-(defun query-album (album artist)
+(defun get-album-api (album artist)
   (let* ((query (format nil "artist:~a AND release:~a" artist album))
          (url (format nil "https://musicbrainz.org/ws/2/release/?query=~a&fmt=json"
                       (quri:url-encode query)))
          (response (dex:get url :headers `(("User-Agent" . ,*user-agent*)))))
     (write-string-to-file (get-cache-path artist album) response)
+
+    (sleep 1.1) ; be nice to the API
     (jonathan:parse response)))
 
 (defun search-album-metadata (artist album)
-    (let ((data (get-album-metadata artist album)))
+    (let ((data (get-album artist album)))
       (let ((first-match (first (getf data :|releases|))))
         (if (not first-match)
             (format t "No matches found for \"~a\" - \"~a\"~%" artist album)
@@ -67,11 +67,6 @@
                 (format t "Warning: Exact match not found for \"~a\" - \"~a\" Found: \"~a\"~%"
                           artist album (getf first-match :|title|)))))))) ; TODO: make possible to choose from multiple results))
         
-        
-
-        
-
-        
 
 (defun download-album-cover (mbid destination-dir)
   (let ((url (format nil "https://coverartarchive.org/release/~a/front" mbid))
@@ -95,15 +90,38 @@
         (let ((album-name (get-dir-name album-dir)))
           (format t "Processing: ~a - ~a~%" artist-name album-name)
           
-          (let* ((meta (search-album-metadata artist-name album-name))
+          (let* ((meta (search-album-metadata artist-name album-name)) ; TODO: fix so it refers to the file property instead of folder name
                  (mbid (getf meta :id)))
             
-            (if mbid
+            (if (and mbid (not (probe-file (merge-pathnames "cover.jpg" album-dir))))
                 (download-album-cover mbid album-dir)
-                (format t "Skipping ~a: Metadata not found.~%" album-name))
-            
-            ;; be slow to not get ip banned :)
-            (sleep 1.2)))))))
+                ; (format t "Going to download cover~%")
+                (format t "Skipping ~a: Metadata not found or cover.jpg exists.~%" album-name))))))))
+
+(defun put-cover-all (root-path)
+  (dolist (artist-dir (uiop:subdirectories root-path))
+    (dolist (album-dir (uiop:subdirectories artist-dir))
+      (when (probe-file (merge-pathnames "cover.jpg" album-dir))
+        (format t "Found cover in album: ~a~%" album-dir)
+        (dolist (file-path (uiop:directory-files album-dir))
+          ; (format t "Checking file: ~a and ~a~%"
+          ;       (pathname-type file-path)
+          ;       (member (string-downcase (pathname-type file-path)) *audio-file-exts* :test #'string-equal))
+          
+          (when (member (string-downcase (pathname-type file-path)) *audio-file-exts* :test #'string-equal)
+            (put-on-cover (merge-pathnames "cover.jpg" album-dir) file-path)
+          ))))))
+
+(defun put-on-cover (cover-path file-path)
+  (when (and (probe-file cover-path)
+             (probe-file file-path))
+    (format t "Putting cover on file: ~a~%" cover-path)
+    (uiop:run-program (list "ffmpeg" "-y" "-i" (native-namestring file-path) "-i" (native-namestring cover-path)
+      "-map" "0" "-map" "1" "-c" "copy"
+      (format nil "~a.temp.~a" (native-namestring file-path) (pathname-type file-path)))) ; fix
+    (uiop:delete-file-if-exists file-path)
+    (uiop:rename-file-overwriting-target (format nil "~a.temp.~a" (namestring file-path) (pathname-type file-path)) file-path)
+   ))
 
 (defun read-config ()
   (with-open-file (stream "config")
@@ -111,6 +129,11 @@
       path)))
 
 (defun main ()
-    (process-music-library (read-config)))
+  (let ((root-path (read-config)))
+    (format t "hello? ~a~%" root-path)
+    (process-music-library root-path)
+    (put-cover-all root-path)
+    (format t "done~%")))
+  
 
 (main)
