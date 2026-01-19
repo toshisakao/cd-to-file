@@ -16,5 +16,7 @@
 *.wx64fsl
 *.wx32fsl
 
+
 .vscode/alive/**
 .vscode/alive/repl-history.json
+.cache

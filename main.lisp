@@ -8,35 +8,65 @@
   "Helper to get the last folder name as a string."
   (car (last (pathname-directory path))))
 
-(defun search-album-metadata (artist album)
+(defun get-cache-path (artist album)
+  "Creates a safe filename for the cache."
+  ;; merge-pathnames puts it relative to your project root
+  (ensure-directories-exist ".cache/")
+  (make-pathname :name (format nil "~a-~a" artist album)
+                 :type "json"
+                 :defaults ".cache/"))
+
+(defun write-string-to-file (path string)
+  (with-open-file (s path :direction :output :if-exists :supersede)
+    (write-string string s)))
+
+(defun read-file-to-string (path)
+  (with-open-file (s path)
+    (let ((data (make-string (file-length s))))
+      (read-sequence data s)
+      data)))
+
+(defun get-album-metadata (artist album)
+  (let* ((cache-file (get-cache-path artist album)))
+    (if (probe-file cache-file)
+        (let ((data (read-file-to-string cache-file)))
+          (jonathan:parse data))
+        (query-album album artist))))
+
+(defun query-album (album artist)
   (let* ((query (format nil "artist:~a AND release:~a" artist album))
          (url (format nil "https://musicbrainz.org/ws/2/release/?query=~a&fmt=json"
                       (quri:url-encode query)))
-         (response (dex:get url :headers `(("User-Agent" . ,*user-agent*))))) ; Make the request with a required User-Agent
-    ; (format t "query: ~a~%" query)
-    
-    (let ((data (jonathan:parse response)))
+         (response (dex:get url :headers `(("User-Agent" . ,*user-agent*)))))
+    (write-string-to-file (get-cache-path artist album) response)
+    (jonathan:parse response)))
+
+(defun search-album-metadata (artist album)
+    (let ((data (get-album-metadata artist album)))
       (let ((first-match (first (getf data :|releases|))))
-        (let* ((album-title (getf first-match :|title|))
+        (if (not first-match)
+            (format t "No matches found for \"~a\" - \"~a\"~%" artist album)
+            (let* ((album-title (getf first-match :|title|))
                (album-date (getf first-match :|date|))
                (album-id (getf first-match :|id|))
                (artist-info (getf (first (getf first-match :|artist-credit|)) :|artist|))
                (artist-name (getf artist-info :|name|))
                (artist-sort-name (getf artist-info :|sort-name|)))
           
-          (format  t "Artist name: ~a ~%" artist-name)
-          (format  t "Artist sort name: ~a ~%" artist-sort-name)
+              (format  t "Artist name: ~a ~%" artist-name)
+              (format  t "Artist sort name: ~a ~%" artist-sort-name)
 
-          (if (or (equal album-title album) (equal artist-name artist))
-            (progn
-              (format t "Exact match found for \"~a\" - \"~a\"~%" artist album)
-              (format t "first-match: ~a~%~%" first-match)
-              (list :title  album-title
-                    :artist artist-name
-                    :date   album-date
-                    :id     album-id))
-            (format t "Warning: Exact match not found for \"~a\" - \"~a\" Found: \"~a\"~%"
-                      artist album (getf first-match :|title|)))))))) ; TODO: make possible to choose from multiple results)
+              (if (or (equal album-title album) (equal artist-name artist))
+                (progn
+                  (format t "Exact match found for \"~a\" - \"~a\"~%" artist album)
+                  ; (format t "first-match: ~a~%~%" first-match)
+                  (list :title  album-title
+                        :artist artist-name
+                        :date   album-date
+                        :id     album-id))
+                (format t "Warning: Exact match not found for \"~a\" - \"~a\" Found: \"~a\"~%"
+                          artist album (getf first-match :|title|)))))))) ; TODO: make possible to choose from multiple results))
+        
         
 
         
@@ -84,4 +114,3 @@
     (process-music-library (read-config)))
 
 (main)
-; (test)
