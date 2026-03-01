@@ -1,6 +1,6 @@
 (require :asdf)
 
-; (ql:quickload '(:quri :dexador :jonathan))
+(ql:quickload '(:quri :dexador :jonathan))
 
 (defparameter *user-agent* "LispMusicManager/0.0.1 ( muryuryumuryuryu@gmail.com )")
 (defparameter *audio-file-exts* '("mp3" "flac" "m4a" "ogg"))
@@ -88,15 +88,14 @@
     (let ((artist-name (get-dir-name artist-dir)))
       (dolist (album-dir (uiop:subdirectories artist-dir))
         (let ((album-name (get-dir-name album-dir)))
-          (format t "Processing: ~a - ~a~%" artist-name album-name)
-          
-          (let* ((meta (search-album-metadata artist-name album-name)) ; TODO: fix so it refers to the file property instead of folder name
-                 (mbid (getf meta :id)))
-            
-            (if (and mbid (not (probe-file (merge-pathnames "cover.jpg" album-dir))))
-                (download-album-cover mbid album-dir)
-                ; (format t "Going to download cover~%")
-                (format t "Skipping ~a: Metadata not found or cover.jpg exists.~%" album-name))))))))
+          (format t "Processing: ~a - ~a~%" artist-name album-dir)
+          ; (let* ((meta (search-album-metadata artist-name album-name)) ; TODO: fix so it refers to the file property instead of folder name
+          ;        (mbid (getf meta :id)))
+          ;
+          ;   (if (and mbid (not (probe-file (merge-pathnames "cover.jpg" album-dir))))
+          ;       (download-album-cover mbid album-dir)
+          ;       ; (format t "Going to download cover~%")
+          ;       (format t "Skipping ~a: Metadata not found or cover.jpg exists.~%" album-name))))))))
 
 (defun put-cover-all (root-path)
   (dolist (artist-dir (uiop:subdirectories root-path))
@@ -123,6 +122,15 @@
     (uiop:rename-file-overwriting-target (format nil "~a.temp.~a" (namestring file-path) (pathname-type file-path)) file-path)
    ))
 
+(defun get-audio-metadata (filename)
+  (let ((output (uiop:run-program 
+                  (list "ffprobe" "-v" "quiet" 
+                        "-show_entries" "format_tags" 
+                        "-print_format" "json" 
+                        filename)
+                  :output :string)))
+    output))
+
 (defun read-config ()
   (with-open-file (stream "config")
     (let ((path (read-line stream nil nil)))
@@ -135,5 +143,5 @@
     (put-cover-all root-path)
     (format t "done~%")))
   
-
 (main)
+
